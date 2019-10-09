@@ -17,6 +17,7 @@ testLibs/*
 # Ignore CppUTest and mbed TLS
 external_libs/CppUTest/*
 external_libs/mbedTLS/*
+external_libs/tinycbor/*
 
 # Ignore credentials
 certs/*
