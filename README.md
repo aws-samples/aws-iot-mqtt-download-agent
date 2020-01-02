@@ -25,6 +25,54 @@ This project is based on the master branch of [aws-iot-device-sdk-embedded-C](ht
 - src/aws_iot_download_agent.c added – Source code of the library.
 - src/aws_iot_download_cbor.c added – Source code of the wrapper for cbor.
 
+### Building the example
+
+#### Linux Ubuntu 16.04 LTS
+All development and testing of the MQTT Download Agent Sample has been performed on Linux Ubuntu 16.04 LTS.
+
+#### Installing Dependencies
+```
+sudo apt-get update
+sudo apt-get install build-essential \
+                     python \
+                     clang
+```
+
+#### Get mbedtls and tinyCBOR
+```
+wget -qO- https://github.com/ARMmbed/mbedtls/archive/mbedtls-2.18.1.tar.gz | tar xvz -C external_libs/mbedTLS --strip-components=1
+wget -qO- https://github.com/ARMmbed/mbed-crypto/archive/mbedcrypto-1.1.1.tar.gz | tar xvz -C external_libs/mbedTLS/crypto --strip-components=1
+wget -qO- https://github.com/intel/tinycbor/archive/v0.5.2.tar.gz | tar xvz -C external_libs/tinycbor --strip-components=1
+```
+
+#### Configure the SDK with your device parameters
+1. [Create and Activate a Device Certificate](https://docs.aws.amazon.com/iot/latest/developerguide/create-device-certificate.html)
+
+2. Copy the certificate, private key, and root CA certificate you created into the `aws-iot-device-sdk-embedded-C/certs` directory
+
+3. You must configure the sample with your personal AWS IoT endpoint, private key, certificate, and root CA certificate. Navigate to the `aws-iot-device-sdk-embedded-C/samples/linux/download_agent_sample` directory.
+
+4. Open the `aws_iot_config.h` file, update the values for the following:
+```
+// Get from console
+// =================================================
+#define AWS_IOT_MQTT_HOST              "YOUR_ENDPOINT_HERE" ///< Customer specific MQTT HOST. The same will be used for Thing Shadow
+#define AWS_IOT_MQTT_PORT              443 ///< default port for MQTT/S
+#define AWS_IOT_MQTT_CLIENT_ID         "YOUR_CLIENT_ID" ///< MQTT client ID should be unique for every device
+#define AWS_IOT_MY_THING_NAME          "YOUR_THING_NAME" ///< Thing Name of the Shadow this device is associated with
+#define AWS_IOT_ROOT_CA_FILENAME       "rootCA.crt" ///< Root CA file name
+#define AWS_IOT_CERTIFICATE_FILENAME   "cert.pem" ///< device signed certificate file name
+#define AWS_IOT_PRIVATE_KEY_FILENAME   "privkey.pem" ///< Device private key filename
+// =================================================
+```
+
+#### Building the download agent sample
+```
+cd samples/linux/download_agent_sample
+make -j4
+./download_agent_sample
+```
+
 ## License
 
 This project is licensed under the Apache-2.0 License.
