@@ -578,6 +578,7 @@ IoT_Error_t aws_iot_download_start( void * pClient,
 			C->usBlockNumTrans = C->usRequestBlock;
 
 		C->pucPayload = ADDR_ALIGN( C->pucRxBlockBitmap + aws_iot_dla_get_bitmap_size(ulFileSize, usBlockSizeLog2) );
+
 		pxDownloadAgent->eState = eDLA_AgentState_Initialized;
 	}
 

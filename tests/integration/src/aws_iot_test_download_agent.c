@@ -1,108 +1,52 @@
 /*
- * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License").
- * You may not use this file except in compliance with the License.
- * A copy of the License is located at
- *
- *  http://aws.amazon.com/apache2.0
- *
- * or in the "license" file accompanying this file. This file is distributed
- * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
- * express or implied. See the License for the specific language governing
- * permissions and limitations under the License.
- */
+* Copyright 2015-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+*
+* Licensed under the Apache License, Version 2.0 (the "License").
+* You may not use this file except in compliance with the License.
+* A copy of the License is located at
+*
+* http://aws.amazon.com/apache2.0
+*
+* or in the "license" file accompanying this file. This file is distributed
+* on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+* express or implied. See the License for the specific language governing
+* permissions and limitations under the License.
+*/
 
+#ifndef DISABLE_IOT_JOBS
+#ifndef DISABLE_IOT_JOBS_INTERFACE
+
+#include "aws_iot_test_integration_common.h"
+#include <aws_iot_jobs_interface.h>
+#include <aws_iot_jobs_json.h>
+#include "aws_iot_download_agent.h"
+#include "md5.h"
+#include <inttypes.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <time.h>
+#include <assert.h>
 #include <fcntl.h>
 
-#include "aws_iot_config.h"
-#include "aws_iot_json_utils.h"
-#include "aws_iot_log.h"
-#include "aws_iot_version.h"
-#include "aws_iot_mqtt_client_interface.h"
-#include "aws_iot_jobs_interface.h"
+static AWS_IoT_Client client;
 
-#include "aws_iot_download_agent.h"
-
-#define HOST_ADDRESS_SIZE 255
-
-/**
- * @brief Default cert location
- */
-static char certDirectory[PATH_MAX + 1] = "../../../certs";
-
-/**
- * @brief Default MQTT HOST URL is pulled from the aws_iot_config.h
- */
-static char HostAddress[HOST_ADDRESS_SIZE] = AWS_IOT_MQTT_HOST;
-
-/**
- * @brief Default MQTT port is pulled from the aws_iot_config.h
- */
-static uint32_t port = AWS_IOT_MQTT_PORT;
-
-/**
- * @brief The job ID associated with this file from the job service
- */
 static char jobId[MAX_SIZE_OF_JOB_ID] = {0};
-
-/**
- * @brief The size of the file in bytes
- */
 static uint32_t fileSize = 0;
-
-/**
- * @brief The file is referenced by this numeric ID in the custom job.
- */
 static uint32_t fileID = 0;
-
-/**
- * @brief The stream associated with this file from the data block service
- */
 static char streamName[MAX_SIZE_OF_STREAM_NAME] = {0};
-
-/**
- * @brief Pointer to a block of memory for download agent use
- */
 static void *pDownloadAgent = NULL;
-
-/**
- * @brief Size of download agent memory
- */
 static uint32_t downloadAgentSize = 0;
-
-/**
- * @brief Received file size from download agent in bytes
- */
 static uint32_t receivedFileSize = 0;
-
-/**
- * @brief Buffer for job status detail message
- */
-static char messageBuffer[MAX_SIZE_OF_JOB_REQUEST];
-
-/**
- * @brief Flag to notify file download complete and stop agent
- */
+static char messageBuffer[MAX_SIZE_OF_JOB_REQUEST] = {0};
 static bool stopDownloadAgentFlag = false;
-
-/**
- * @brief The request timer for restart the download agent
- */
 static Timer requestTimer;
+static char md5sum[33] = {0};
 
 static jsmn_parser jsonParser;
-static jsmntok_t jsonTokenStruct[MAX_JSON_TOKEN_EXPECTED];
+static jsmntok_t jsonTokenStruct[MAX_JSON_TOKEN_EXPECTED] = {0};
 static int32_t tokenCount;
 
-/**
- * @brief Parse the download job document and validate.
- */
+static void aws_iot_mqtt_tests_disconnect_callback_handler(AWS_IoT_Client *pClient, void *param) {
+}
+
 static IoT_Error_t iot_parse_job_doc(const char * pcJSON, uint32_t ulMsgLen)
 {
 	IoT_Error_t eResult = FAILURE;
@@ -184,6 +128,16 @@ static IoT_Error_t iot_parse_job_doc(const char * pcJSON, uint32_t ulMsgLen)
 				}
 
 				IOT_INFO("fileSize: %d", fileSize);
+
+				tokJobDocument = findToken("md5sum", pcJSON, tok);
+				eResult = parseStringValue((char *) md5sum, 64, pcJSON, tokJobDocument);
+				if(SUCCESS != eResult) {
+					IOT_ERROR("parseStringValue returned error : %d ", eResult);
+					eResult = FAILURE;
+					break;
+				}
+
+				IOT_INFO("md5sum: %s", md5sum);
 				eResult = SUCCESS;
 			}
 		} while(0);
@@ -223,8 +177,11 @@ static void iot_update_job_status(AWS_IoT_Client *pClient, char * jobId, JobExec
 	}
 }
 
-static void iot_get_pending_callback_handler(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
+void iot_test_download_agent_get_pending_cb(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
 									IoT_Publish_Message_Params *params, void *pData) {
+	IoT_Error_t rc = SUCCESS;
+	char topicToPublishGetNext[MAX_JOB_TOPIC_LENGTH_BYTES];
+
 	IOT_UNUSED(pData);
 	IOT_UNUSED(pClient);
 	IOT_INFO("\nJOB_GET_PENDING_TOPIC callback");
@@ -259,11 +216,20 @@ static void iot_get_pending_callback_handler(AWS_IoT_Client *pClient, char *topi
 	if (jobs) {
 		IOT_INFO("queuedJobs: %.*s", jobs->end - jobs->start, (char *)params->payload + jobs->start);
 	}
+
+	AwsIotDescribeJobExecutionRequest describeRequest;
+	describeRequest.executionNumber = 0;
+	describeRequest.includeJobDocument = true;
+	describeRequest.clientToken = NULL;
+
+	rc = aws_iot_jobs_describe(&client, QOS0, AWS_IOT_MY_THING_NAME, JOB_ID_NEXT, &describeRequest, topicToPublishGetNext, sizeof(topicToPublishGetNext), NULL, 0);
 }
 
-static void iot_next_job_callback_handler(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
+void iot_test_download_next_job_cb(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
 									IoT_Publish_Message_Params *params, void *pData) {
-	IOT_UNUSED(pData);
+	char topicToPublishUpdate[MAX_JOB_TOPIC_LENGTH_BYTES];
+	char messageBuffer[200];
+
 	IOT_UNUSED(pClient);
 	IOT_INFO("\nJOB_NOTIFY_NEXT_TOPIC / JOB_DESCRIBE_TOPIC($next) callback");
 	IOT_INFO("topic: %.*s", topicNameLen, topicName);
@@ -291,7 +257,7 @@ static void iot_next_job_callback_handler(AWS_IoT_Client *pClient, char *topicNa
 	if (tokExecution) {
 		IoT_Error_t rc;
 		IOT_INFO("execution: %.*s", tokExecution->end - tokExecution->start, (char *)params->payload + tokExecution->start);
-		/* Alternatively if the job still has more steps the status can be set to JOB_EXECUTION_IN_PROGRESS instead */
+
 		rc = iot_parse_job_doc(params->payload, params->payloadLen);
 		if ( SUCCESS != rc ) {
 			strcpy(messageBuffer, "{\"reason\":\"InvalidJsonException\"}");
@@ -341,55 +307,79 @@ static void iot_next_job_callback_handler(AWS_IoT_Client *pClient, char *topicNa
 									"{\"receive\":\"%u/%u\"}",
 									receivedFileSize,
 									fileSize);
+			/* Alternatively if the job still has more steps the status can be set to JOB_EXECUTION_IN_PROGRESS instead */
 			iot_update_job_status(pClient, (char *) jobId, JOB_EXECUTION_IN_PROGRESS, messageBuffer);
 			countdown_ms(&requestTimer, AWS_IOT_DOWNLOAD_AGENT_REQUEST_WAIT_INTERVAL);
 		}
 	} else {
-		IOT_INFO("execution property not found, nothing to do");
+		IOT_INFO("execution property not found, nothing to do, jobs integration test complete");
+
+		bool *testDone = (bool *) pData;
+		*testDone = true;
 	}
 }
 
-static void iot_update_accepted_callback_handler(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
-									IoT_Publish_Message_Params *params, void *pData) {
-	IOT_UNUSED(pData);
-	IOT_UNUSED(pClient);
-	IOT_INFO("\nJOB_UPDATE_TOPIC / accepted callback");
-	IOT_INFO("topic: %.*s", topicNameLen, topicName);
-	IOT_INFO("payload: %.*s", (int) params->payloadLen, (char *)params->payload);
-}
+bool aws_iot_download_test_md5(void)
+{
+	bool ret = false;
+	mbedtls_md5_context md5;
+	uint8_t md5_calc[16] = {0};
+	char md5str[33] = {0};
+	char * binFile = NULL;
+	int fd = 0;
+	uint32_t ulBytes = 0;
 
-static void iot_update_rejected_callback_handler(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
-									IoT_Publish_Message_Params *params, void *pData) {
-	IOT_UNUSED(pData);
-	IOT_UNUSED(pClient);
-	IOT_INFO("\nJOB_UPDATE_TOPIC / rejected callback");
-	IOT_INFO("topic: %.*s", topicNameLen, topicName);
-	IOT_INFO("payload: %.*s", (int) params->payloadLen, (char *)params->payload);
-
-	/* Do error handling here for when the update was rejected */
-}
-
-static void disconnectCallbackHandler(AWS_IoT_Client *pClient, void *data) {
-	IOT_WARN("MQTT Disconnect");
-	IoT_Error_t rc = FAILURE;
-
-	if(NULL == pClient) {
-		return;
+	binFile = malloc(fileSize);
+	if (NULL == binFile)
+	{
+		IOT_ERROR("Out of memory in md5sum check");
+		return ret;
 	}
 
-	IOT_UNUSED(data);
-
-	if(aws_iot_is_autoreconnect_enabled(pClient)) {
-		IOT_INFO("Auto Reconnect is enabled, Reconnecting attempt will start now");
-	} else {
-		IOT_WARN("Auto Reconnect not enabled. Starting manual reconnect...");
-		rc = aws_iot_mqtt_attempt_reconnect(pClient);
-		if(NETWORK_RECONNECTED == rc) {
-			IOT_WARN("Manual Reconnect Successful");
-		} else {
-			IOT_WARN("Manual Reconnect Failed - %d", rc);
-		}
+	fd = open("mytest", O_RDWR, 0666);
+	if (fd == -1)
+	{
+		IOT_ERROR("Cannot open test file");
+		free(binFile);
+		return ret;
 	}
+
+	lseek(fd, 0, SEEK_CUR);
+	ulBytes = read(fd, binFile, fileSize);
+	if (ulBytes != fileSize)
+	{
+		IOT_ERROR("Something wrong on read file, read size=%d, file size=%d", ulBytes, fileSize);
+		free(binFile);
+		return ret;
+	}
+
+	close(fd);
+
+	mbedtls_md5_init(&md5);
+
+	if ((ret = mbedtls_md5_starts_ret(&md5)) != 0)
+		goto exit;
+	if ((ret = mbedtls_md5_update_ret(&md5, (const unsigned char *) binFile, fileSize)) != 0)
+		goto exit;
+	if ((ret = mbedtls_md5_finish_ret(&md5, md5_calc)) != 0)
+		goto exit;
+
+	sprintf(md5str, "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+		md5_calc[0],md5_calc[1],md5_calc[2],md5_calc[3],
+		md5_calc[4],md5_calc[5],md5_calc[6],md5_calc[7],
+		md5_calc[8],md5_calc[9],md5_calc[10],md5_calc[11],
+		md5_calc[12],md5_calc[13],md5_calc[14],md5_calc[15]);
+
+	if (strcmp(md5sum, md5str) == 0)
+	{
+		IOT_INFO("md5sum check pass");
+		ret = true;
+	}
+
+exit:
+	mbedtls_md5_free(&md5);
+	free(binFile);
+	return ret;
 }
 
 uint32_t aws_iot_download_save_block( uint8_t * pucStreamName,
@@ -434,81 +424,81 @@ uint32_t aws_iot_download_save_block( uint8_t * pucStreamName,
 #endif
 }
 
-int main(int argc, char **argv) {
-	char rootCA[PATH_MAX + 1];
+int aws_iot_download_agent_basic_test() {
+	char certDirectory[15] = "../../certs";
 	char clientCRT[PATH_MAX + 1];
+	char root_CA[PATH_MAX + 1];
 	char clientKey[PATH_MAX + 1];
 	char CurrentWD[PATH_MAX + 1];
+	char clientId[50];
+	char cPayload[100];
+	IoT_Client_Init_Params initParams = IoT_Client_Init_Params_initializer;
+	IoT_Client_Connect_Params connectParams;
+	IoT_Publish_Message_Params paramsQOS0;
+	IoT_Error_t rc = SUCCESS;
+	struct timeval connectTime, waitCallBackTime;
+	struct timeval start, end;
+	unsigned int connectCounter = 0;
 
-	IoT_Error_t rc = FAILURE;
+	IOT_DEBUG("\nConnecting Client ");
+	do {
+		getcwd(CurrentWD, sizeof(CurrentWD));
+		snprintf(root_CA, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_ROOT_CA_FILENAME);
+		snprintf(clientCRT, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_CERTIFICATE_FILENAME);
+		snprintf(clientKey, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_PRIVATE_KEY_FILENAME);
+		srand((unsigned int)time(NULL));
+		snprintf(clientId, 50, "%s_%d", INTEGRATION_TEST_CLIENT_ID, rand() % 10000);
 
-	AWS_IoT_Client client;
-	IoT_Client_Init_Params mqttInitParams = iotClientInitParamsDefault;
-	IoT_Client_Connect_Params connectParams = iotClientConnectParamsDefault;
+		printf("\n\nClient ID : %s \n", clientId);
 
-	getcwd(CurrentWD, sizeof(CurrentWD));
-	snprintf(rootCA, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_ROOT_CA_FILENAME);
-	snprintf(clientCRT, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_CERTIFICATE_FILENAME);
-	snprintf(clientKey, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_PRIVATE_KEY_FILENAME);
+		IOT_DEBUG("Root CA Path : %s\n clientCRT : %s\n clientKey : %s\n", root_CA, clientCRT, clientKey);
+		initParams.pHostURL = AWS_IOT_MQTT_HOST;
+		initParams.port = AWS_IOT_MQTT_PORT;
+		initParams.pRootCALocation = root_CA;
+		initParams.pDeviceCertLocation = clientCRT;
+		initParams.pDevicePrivateKeyLocation = clientKey;
+		initParams.mqttCommandTimeout_ms = 10000;
+		initParams.tlsHandshakeTimeout_ms = 10000;
+		initParams.disconnectHandler = aws_iot_mqtt_tests_disconnect_callback_handler;
+		initParams.enableAutoReconnect = false;
+		aws_iot_mqtt_init(&client, &initParams);
 
-	IOT_DEBUG("rootCA %s", rootCA);
-	IOT_DEBUG("clientCRT %s", clientCRT);
-	IOT_DEBUG("clientKey %s", clientKey);
+		connectParams.keepAliveIntervalInSec = 10;
+		connectParams.isCleanSession = true;
+		connectParams.MQTTVersion = MQTT_3_1_1;
+		connectParams.pClientID = (char *)&clientId;
+		connectParams.clientIDLen = strlen(clientId);
+		connectParams.isWillMsgPresent = false;
+		connectParams.pUsername = NULL;
+		connectParams.usernameLen = 0;
+		connectParams.pPassword = NULL;
+		connectParams.passwordLen = 0;
 
-	mqttInitParams.enableAutoReconnect = false; // We enable this later below
-	mqttInitParams.pHostURL = HostAddress;
-	mqttInitParams.port = port;
-	mqttInitParams.pRootCALocation = rootCA;
-	mqttInitParams.pDeviceCertLocation = clientCRT;
-	mqttInitParams.pDevicePrivateKeyLocation = clientKey;
-	mqttInitParams.mqttCommandTimeout_ms = 20000;
-	mqttInitParams.tlsHandshakeTimeout_ms = 5000;
-	mqttInitParams.isSSLHostnameVerify = true;
-	mqttInitParams.disconnectHandler = disconnectCallbackHandler;
-	mqttInitParams.disconnectHandlerData = NULL;
+		gettimeofday(&start, NULL);
+		rc = aws_iot_mqtt_connect(&client, &connectParams);
+		gettimeofday(&end, NULL);
+		timersub(&end, &start, &connectTime);
 
-	rc = aws_iot_mqtt_init(&client, &mqttInitParams);
-	if(SUCCESS != rc) {
-		IOT_ERROR("aws_iot_mqtt_init returned error : %d ", rc);
-		return rc;
+		connectCounter++;
+	} while(rc != SUCCESS && connectCounter < CONNECT_MAX_ATTEMPT_COUNT);
+
+	if(SUCCESS == rc) {
+		IOT_DEBUG("## Connect Success. Time sec: %ld, usec: %ld\n", (long int)connectTime.tv_sec, (long int)connectTime.tv_usec);
+	} else {
+		IOT_ERROR("## Connect Failed. error code %d\n", rc);
+		return -1;
 	}
 
-	connectParams.keepAliveIntervalInSec = 600;
-	connectParams.isCleanSession = true;
-	connectParams.MQTTVersion = MQTT_3_1_1;
-	connectParams.pClientID = AWS_IOT_MQTT_CLIENT_ID;
-	connectParams.clientIDLen = (uint16_t) strlen(AWS_IOT_MQTT_CLIENT_ID);
-	connectParams.isWillMsgPresent = false;
-
-	IOT_INFO("Connecting...");
-	rc = aws_iot_mqtt_connect(&client, &connectParams);
-	if(SUCCESS != rc) {
-		IOT_ERROR("Error(%d) connecting to %s:%d", rc, mqttInitParams.pHostURL, mqttInitParams.port);
-		return rc;
-	}
-	/*
-	 * Enable Auto Reconnect functionality. Minimum and Maximum time of Exponential backoff are set in aws_iot_config.h
-	 *  #AWS_IOT_MQTT_MIN_RECONNECT_WAIT_INTERVAL
-	 *  #AWS_IOT_MQTT_MAX_RECONNECT_WAIT_INTERVAL
-	 */
-	rc = aws_iot_mqtt_autoreconnect_set_status(&client, true);
-	if(SUCCESS != rc) {
-		IOT_ERROR("Unable to set Auto Reconnect to true - %d", rc);
-		return rc;
-	}
-
+	bool testDone = false;
 	char topicToSubscribeGetPending[MAX_JOB_TOPIC_LENGTH_BYTES];
 	char topicToSubscribeNotifyNext[MAX_JOB_TOPIC_LENGTH_BYTES];
 	char topicToSubscribeGetNext[MAX_JOB_TOPIC_LENGTH_BYTES];
-	char topicToSubscribeUpdateAccepted[MAX_JOB_TOPIC_LENGTH_BYTES];
-	char topicToSubscribeUpdateRejected[MAX_JOB_TOPIC_LENGTH_BYTES];
 
 	char topicToPublishGetPending[MAX_JOB_TOPIC_LENGTH_BYTES];
-	char topicToPublishGetNext[MAX_JOB_TOPIC_LENGTH_BYTES];
 
 	rc = aws_iot_jobs_subscribe_to_job_messages(
 		&client, QOS0, AWS_IOT_MY_THING_NAME, NULL, JOB_GET_PENDING_TOPIC, JOB_WILDCARD_REPLY_TYPE,
-		iot_get_pending_callback_handler, NULL, topicToSubscribeGetPending, sizeof(topicToSubscribeGetPending));
+		iot_test_download_agent_get_pending_cb, &testDone, topicToSubscribeGetPending, sizeof(topicToSubscribeGetPending));
 
 	if(SUCCESS != rc) {
 		IOT_ERROR("Error subscribing JOB_GET_PENDING_TOPIC: %d ", rc);
@@ -517,7 +507,7 @@ int main(int argc, char **argv) {
 
 	rc = aws_iot_jobs_subscribe_to_job_messages(
 		&client, QOS0, AWS_IOT_MY_THING_NAME, NULL, JOB_NOTIFY_NEXT_TOPIC, JOB_REQUEST_TYPE,
-		iot_next_job_callback_handler, NULL, topicToSubscribeNotifyNext, sizeof(topicToSubscribeNotifyNext));
+		iot_test_download_next_job_cb, &testDone, topicToSubscribeNotifyNext, sizeof(topicToSubscribeNotifyNext));
 
 	if(SUCCESS != rc) {
 		IOT_ERROR("Error subscribing JOB_NOTIFY_NEXT_TOPIC: %d ", rc);
@@ -526,50 +516,27 @@ int main(int argc, char **argv) {
 
 	rc = aws_iot_jobs_subscribe_to_job_messages(
 		&client, QOS0, AWS_IOT_MY_THING_NAME, JOB_ID_NEXT, JOB_DESCRIBE_TOPIC, JOB_WILDCARD_REPLY_TYPE,
-		iot_next_job_callback_handler, NULL, topicToSubscribeGetNext, sizeof(topicToSubscribeGetNext));
+		iot_test_download_next_job_cb, &testDone, topicToSubscribeGetNext, sizeof(topicToSubscribeGetNext));
 
 	if(SUCCESS != rc) {
 		IOT_ERROR("Error subscribing JOB_DESCRIBE_TOPIC ($next): %d ", rc);
 		return rc;
 	}
 
-	rc = aws_iot_jobs_subscribe_to_job_messages(
-		&client, QOS0, AWS_IOT_MY_THING_NAME, JOB_ID_WILDCARD, JOB_UPDATE_TOPIC, JOB_ACCEPTED_REPLY_TYPE,
-		iot_update_accepted_callback_handler, NULL, topicToSubscribeUpdateAccepted, sizeof(topicToSubscribeUpdateAccepted));
-
-	if(SUCCESS != rc) {
-		IOT_ERROR("Error subscribing JOB_UPDATE_TOPIC/accepted: %d ", rc);
-		return rc;
-	}
-
-	rc = aws_iot_jobs_subscribe_to_job_messages(
-		&client, QOS0, AWS_IOT_MY_THING_NAME, JOB_ID_WILDCARD, JOB_UPDATE_TOPIC, JOB_REJECTED_REPLY_TYPE,
-		iot_update_rejected_callback_handler, NULL, topicToSubscribeUpdateRejected, sizeof(topicToSubscribeUpdateRejected));
-
-	if(SUCCESS != rc) {
-		IOT_ERROR("Error subscribing JOB_UPDATE_TOPIC/rejected: %d ", rc);
-		return rc;
-	}
+	paramsQOS0.qos = QOS0;
+	paramsQOS0.payload = (void *) cPayload;
+	paramsQOS0.isRetained = 0;
+	paramsQOS0.payloadLen = strlen(cPayload);
 
 	rc = aws_iot_jobs_send_query(&client, QOS0, AWS_IOT_MY_THING_NAME, NULL, NULL, topicToPublishGetPending, sizeof(topicToPublishGetPending), NULL, 0, JOB_GET_PENDING_TOPIC);
+	gettimeofday(&start, NULL);
+	while (!testDone) {
+		aws_iot_mqtt_yield(&client, 5000);
 
-	AwsIotDescribeJobExecutionRequest describeRequest;
-	describeRequest.executionNumber = 0;
-	describeRequest.includeJobDocument = true;
-	describeRequest.clientToken = NULL;
+		gettimeofday(&end, NULL);
+		timersub(&end, &start, &waitCallBackTime);
 
-	rc = aws_iot_jobs_describe(&client, QOS0, AWS_IOT_MY_THING_NAME, JOB_ID_NEXT, &describeRequest, topicToPublishGetNext, sizeof(topicToPublishGetNext), NULL, 0);
-
-	init_timer(&requestTimer);
-
-	for( ; ; )
-	{
-		//Max time the yield function will wait for read messages
-		rc = aws_iot_mqtt_yield(&client, 100);
-		if(NETWORK_ATTEMPTING_RECONNECT == rc) {
-			// If the client is attempting to reconnect we will skip the rest of the loop.
-			continue;
-		}
+		if(waitCallBackTime.tv_sec > TIMEOUT_DOWNLOAD_FILE_SEC) break;
 
 		if (NULL == pDownloadAgent)
 		{
@@ -579,11 +546,6 @@ int main(int argc, char **argv) {
 
 		if (timerisset(&requestTimer.end_time) && has_timer_expired(&requestTimer) && (pDownloadAgent != NULL))
 		{
-			// Since the first start of this download session in iot_next_job_callback_handler,
-			// a certain period of time has elapsed, but the session hasn't finished downloading
-			// all blocks of the file. Refresh the session by simply re-invoking aws_iot_download_start
-			// with the same parameters. This will cause the agent to re-request the remaining
-			// blocks. It will not re-download the already-downloaded blocks.
 			IOT_INFO("Not download complete yet, restart agent.");
 
 			rc = aws_iot_download_start(&client,
@@ -642,8 +604,16 @@ int main(int argc, char **argv) {
 			pDownloadAgent = NULL;
 			downloadAgentSize = 0;
 			stopDownloadAgentFlag = false;
+
+			testDone = aws_iot_download_test_md5();
 		}
 	}
 
-	return rc;
+	if (testDone)
+		return SUCCESS;
+	else
+		return FAILURE;
 }
+
+#endif
+#endif

@@ -104,10 +104,8 @@ PRE_MAKE_CMDS += make &&
 PRE_MAKE_CMDS += cd - &&
 PRE_MAKE_CMDS += pwd &&
 PRE_MAKE_CMDS += cp -f $(CPPUTEST_DIR)/src/CppUTest/libCppUTest.a $(CPPUTEST_DIR)/libCppUTest.a &&
-PRE_MAKE_CMDS += cp -f $(CPPUTEST_DIR)/src/CppUTestExt/libCppUTestExt.a $(CPPUTEST_DIR)/libCppUTestExt.a
-
-TINY_CBOR_MAKE_CMD = $(MAKE) -C $(TINYCBOR_DIR)
-MAKE_CBOR_CMD = $(TINY_CBOR_MAKE_CMD) CC=clang CFLAGS="-m64 -Oz" LDFLAGS="-m64"
+PRE_MAKE_CMDS += cp -f $(CPPUTEST_DIR)/src/CppUTestExt/libCppUTestExt.a $(CPPUTEST_DIR)/libCppUTestExt.a &&
+PRE_MAKE_CMDS += $(MAKE) -C $(TINYCBOR_DIR)
 
 # Using TLS Mock for running Unit Tests
 MOCKS_SRC += $(APP_DIR)/tls_mock/aws_iot_tests_unit_mock_tls_params.c
@@ -128,7 +126,6 @@ LCOV_EXCLUDE_PATTERN += "external_libs/*"
 
 build-cpputest:
 	$(PRE_MAKE_CMDS)
-	$(MAKE_CBOR_CMD)
 
 include CppUTestMakefileWorker.mk
 

@@ -93,7 +93,7 @@ Save the following JSON content into a file named ***create-stream.json***. (Ple
     "description": "This stream is used for sending fota-image-v1 file to devices.",
     "files": [
         {
-            "fileId": *any_integer_between_0_to_255*,
+            "fileId": *any_integer_between_1_to_255*,
             "s3Location": {
                 "bucket":"iot-fota-bucket",
                 "key":"fota-image-v1"
@@ -120,7 +120,7 @@ Create a file named ***iot-fota-job.json*** on your local machine, copy and past
 {
     "command": "fota",
     "streamId": "fota-image-v1-stream",
-    "fileId": *any_integer_between_0_to_255*,
+    "fileId": *any_integer_between_1_to_255*,
     "fileSize": *your_fota_image_size_in_Bytes*
 }
 ```
