@@ -27,3 +27,4 @@ TEST_GROUP_C(DownloadCbor){
 };
 
 TEST_GROUP_C_WRAPPER(DownloadCbor, CborDownloadAgentApi)
+TEST_GROUP_C_WRAPPER(DownloadCbor, CborDownloadAgentServerFiles)
