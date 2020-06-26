@@ -48,11 +48,9 @@ wget -qO- https://github.com/intel/tinycbor/archive/v0.5.2.tar.gz | tar xvz -C e
 #### Configure the SDK with your device parameters
 1. [Create and Activate a Device Certificate](https://docs.aws.amazon.com/iot/latest/developerguide/create-device-certificate.html)
 
-2. Copy the certificate, private key, and root CA certificate you created into the `aws-iot-device-sdk-embedded-C/certs` directory
+2. Copy the certificate, private key, and root CA certificate you created into the [`/certs`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/tree/master/certs) directory.
 
-3. You must configure the sample with your own AWS IoT endpoint, private key, certificate, and root CA certificate. Make those changes in the [`aws-iot-device-sdk-embedded-C/samples/linux/download_agent_sample/aws_iot_config.h`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/blob/master/samples/linux/download_agent_sample/aws_iot_config.h) file.
-
-4. Open the `aws_iot_config.h` file, update the values for the following:
+3. You must configure the sample with your own AWS IoT endpoint, private key, certificate, and root CA certificate. Make those changes in the [`samples/linux/download_agent_sample/aws_iot_config.h`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/blob/master/samples/linux/download_agent_sample/aws_iot_config.h) file. Open the `aws_iot_config.h` file, update the values for the following:
 ```
 // Get from console
 // =================================================
