@@ -1,14 +1,14 @@
 ## MQTT Download Agent
 
-### This project contains a library for downloading files from AWS IoT over the shared MQTT connection.
+### This project contains a library for downloading files from AWS IoT over a MQTT connection.
 
-The library has been pre-integrated with [aws-iot-device-sdk-embedded-C](https://github.com/aws/aws-iot-device-sdk-embedded-C). There is also a sample application that demonstrates how to use the library’s API.
+The library has been pre-integrated with [aws-iot-device-sdk-embedded-C](https://github.com/aws/aws-iot-device-sdk-embedded-C). There is also a [sample application](https://github.com/aws-samples/aws-iot-mqtt-download-agent/tree/master/samples/linux/download_agent_sample) that demonstrates how to use the library’s API.
 
-The API of this library is documented in `include/aws_iot_download_agent.h`.
+The theory of operations and API of this library is documented in [`include/aws_iot_download_agent.h`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/blob/master/include/aws_iot_download_agent.h).
 
-For instruction on how to create a stream in AWS IoT to supply the file for downloading, see `samples/linux/download_agent_sample/README.md`.
+For instruction on how to create a stream in AWS IoT to supply the file for downloading, see [`samples/linux/download_agent_sample/README.md`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/blob/master/samples/linux/download_agent_sample/README.md).
 
-To learn how to use this library’s API, see `samples/linux/download_agent_sample/download_agent_sample.c.`
+To learn how to use this library’s API, see [`samples/linux/download_agent_sample/download_agent_sample.c.`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/blob/master/samples/linux/download_agent_sample/download_agent_sample.c)
 
 This project is based on the master branch of [aws-iot-device-sdk-embedded-C](https://github.com/aws/aws-iot-device-sdk-embedded-C). It added/modified the following files:
 - external_libs/tinycbor/README added – Pointer to where to download tinycbor, the externally depended library.
@@ -48,11 +48,9 @@ wget -qO- https://github.com/intel/tinycbor/archive/v0.5.2.tar.gz | tar xvz -C e
 #### Configure the SDK with your device parameters
 1. [Create and Activate a Device Certificate](https://docs.aws.amazon.com/iot/latest/developerguide/create-device-certificate.html)
 
-2. Copy the certificate, private key, and root CA certificate you created into the `aws-iot-device-sdk-embedded-C/certs` directory
+2. Copy the certificate, private key, and root CA certificate you created into the [`/certs`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/tree/master/certs) directory.
 
-3. You must configure the sample with your personal AWS IoT endpoint, private key, certificate, and root CA certificate. Navigate to the `aws-iot-device-sdk-embedded-C/samples/linux/download_agent_sample` directory.
-
-4. Open the `aws_iot_config.h` file, update the values for the following:
+3. You must configure the sample with your own AWS IoT endpoint, private key, certificate, and root CA certificate. Make those changes in the [`samples/linux/download_agent_sample/aws_iot_config.h`](https://github.com/aws-samples/aws-iot-mqtt-download-agent/blob/master/samples/linux/download_agent_sample/aws_iot_config.h) file. Open the `aws_iot_config.h` file, update the values for the following:
 ```
 // Get from console
 // =================================================
