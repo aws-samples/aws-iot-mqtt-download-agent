@@ -59,7 +59,9 @@
 
 // Download Agent specific configs
 #define MAX_SIZE_OF_STREAM_NAME 64
+#define MAX_SIZE_OF_FILE_NAME 64
 #define MAX_SIZE_OF_FILE_BLOCK_LOG2 11UL
+#define MAX_SIZE_OF_CMD 128
 #define AWS_IOT_DOWNLOAD_AGENT_REQUEST_WAIT_INTERVAL 5000 ///< Time interval after being idle for download.
 
 #define DOWNLOAD_AGENT_WRITE_FLASH_SUPPORTED true  ///< Enable write flash function for Download Agent

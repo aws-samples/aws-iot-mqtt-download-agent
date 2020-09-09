@@ -52,6 +52,11 @@ static uint32_t port = AWS_IOT_MQTT_PORT;
 static char jobId[MAX_SIZE_OF_JOB_ID] = {0};
 
 /**
+ * @brief The filename of the file
+ */
+static char fileNameToSaveOnDevice[MAX_SIZE_OF_FILE_NAME] = {0};
+
+/**
  * @brief The size of the file in bytes
  */
 static uint32_t fileSize = 0;
@@ -59,12 +64,17 @@ static uint32_t fileSize = 0;
 /**
  * @brief The file is referenced by this numeric ID in the custom job.
  */
-static uint32_t fileID = 0;
+static uint32_t fileId = 0;
 
 /**
  * @brief The stream associated with this file from the data block service
  */
 static char streamName[MAX_SIZE_OF_STREAM_NAME] = {0};
+
+/**
+ * @brief The command to be executed after file is donwloaded
+ */
+static char cmdToBeExecutedAfterDownload[MAX_SIZE_OF_CMD] = {0};
 
 /**
  * @brief Pointer to a block of memory for download agent use
@@ -155,35 +165,90 @@ static IoT_Error_t iot_parse_job_doc(const char * pcJSON, uint32_t ulMsgLen)
 			if (tok) {
 				jsmntok_t *tokJobDocument;
 
-				tokJobDocument = findToken("streamId", pcJSON, tok);
-				eResult = parseStringValue(streamName, MAX_SIZE_OF_STREAM_NAME + 1, pcJSON, tokJobDocument);
-				if(SUCCESS != eResult) {
+				/* required property */
+				if ((tokJobDocument = findToken("streamId", pcJSON, tok)) == NULL)
+				{
+					IOT_ERROR("cannot find token \"streamId\"");
+					eResult = FAILURE;
+					break;
+				}
+				else if ((eResult = parseStringValue(streamName, MAX_SIZE_OF_STREAM_NAME + 1, pcJSON, tokJobDocument)) !=  SUCCESS)
+				{
 					IOT_ERROR("parseStringValue returned error : %d ", eResult);
 					eResult = FAILURE;
 					break;
 				}
+				else
+				{
+					IOT_INFO("streamId: %s", streamName);
+				}
 
-				IOT_INFO("streamId: %s", streamName);
-
-				tokJobDocument = findToken("fileId", pcJSON, tok);
-				eResult = parseUnsignedInteger32Value(&fileID, pcJSON, tokJobDocument);
-				if(SUCCESS != eResult) {
+				/* required property */
+				if ((tokJobDocument = findToken("fileNameToSaveOnDevice", pcJSON, tok)) == NULL)
+				{
+					IOT_ERROR("cannot find token \"fileNameToSaveOnDevice\"");
+					eResult = FAILURE;
+					break;
+				}
+				else if ((eResult = parseStringValue(fileNameToSaveOnDevice, MAX_SIZE_OF_FILE_NAME + 1, pcJSON, tokJobDocument)) !=  SUCCESS)
+				{
 					IOT_ERROR("parseStringValue returned error : %d ", eResult);
 					eResult = FAILURE;
 					break;
 				}
+				else
+				{
+					IOT_INFO("fileNameToSaveOnDevice: %s", fileNameToSaveOnDevice);
+				}
 
-				IOT_INFO("fileId: %d", fileID);
-
-				tokJobDocument = findToken("fileSize", pcJSON, tok);
-				eResult = parseUnsignedInteger32Value(&fileSize, pcJSON, tokJobDocument);
-				if(SUCCESS != eResult) {
+				/* required property */
+				if ((tokJobDocument = findToken("fileId", pcJSON, tok)) == NULL)
+				{
+					IOT_ERROR("cannot find token \"fileId\"");
+					eResult = FAILURE;
+					break;
+				}
+				else if ((eResult = parseUnsignedInteger32Value(&fileId, pcJSON, tokJobDocument)) !=  SUCCESS)
+				{
 					IOT_ERROR("parseStringValue returned error : %d ", eResult);
 					eResult = FAILURE;
 					break;
 				}
+				else
+				{
+					IOT_INFO("fileId: %d", fileId);
+				}
 
-				IOT_INFO("fileSize: %d", fileSize);
+				/* required property */
+				if ((tokJobDocument = findToken("fileSize", pcJSON, tok)) == NULL)
+				{
+					IOT_ERROR("cannot find token \"fileSize\"");
+					eResult = FAILURE;
+					break;
+				}
+				else if ((eResult = parseUnsignedInteger32Value(&fileSize, pcJSON, tokJobDocument)) !=  SUCCESS)
+				{
+					IOT_ERROR("parseStringValue returned error : %d ", eResult);
+					eResult = FAILURE;
+					break;
+				}
+				else
+				{
+					IOT_INFO("fileSize: %d", fileSize);
+				}
+
+				/* optional property */
+				if((tokJobDocument = findToken("cmdToBeExecutedAfterDownload", pcJSON, tok)) != NULL)
+				{
+					eResult = parseStringValue(cmdToBeExecutedAfterDownload, MAX_SIZE_OF_CMD + 1, pcJSON, tokJobDocument);
+					if(SUCCESS != eResult) {
+						IOT_ERROR("parseStringValue returned error : %d ", eResult);
+						eResult = FAILURE;
+						break;
+					}
+				}
+				IOT_INFO("cmdToBeExecutedAfterDownload: %s", cmdToBeExecutedAfterDownload);
+
 				eResult = SUCCESS;
 			}
 		} while(0);
@@ -320,7 +385,7 @@ static void iot_next_job_callback_handler(AWS_IoT_Client *pClient, char *topicNa
 							downloadAgentSize,
 							(uint8_t *) AWS_IOT_MY_THING_NAME,
 							(uint8_t *) streamName,
-							fileID,
+							fileId,
 							fileSize,
 							MAX_SIZE_OF_FILE_BLOCK_LOG2,
 							AWS_IOT_DOWNLOAD_REQUEST_ALL_BLOCKS);
@@ -393,7 +458,7 @@ static void disconnectCallbackHandler(AWS_IoT_Client *pClient, void *data) {
 }
 
 uint32_t aws_iot_download_save_block( uint8_t * pucStreamName,
-									  uint32_t ulServerFileID,
+									  uint32_t ulServerFileId,
 									  uint32_t ulOffset,
 									  uint8_t const * pcData,
 									  uint32_t ulBlockSize,
@@ -401,7 +466,7 @@ uint32_t aws_iot_download_save_block( uint8_t * pucStreamName,
 {
 #if defined (__APPLE__) || (__linux__) || (__unix__)
 	uint32_t ulBytes = 0;
-	int fd = open("mytest", O_RDWR | O_CREAT, 0666);
+	int fd = open(fileNameToSaveOnDevice, O_RDWR | O_CREAT, 0666);
 
 	if (fd == -1)
 	{
@@ -431,6 +496,25 @@ uint32_t aws_iot_download_save_block( uint8_t * pucStreamName,
 	return ulBytes;
 #else
 	#error "Implement your write block code here!"
+#endif
+}
+
+static void executeSystemCmd(const char *cmd)
+{
+#if defined (__APPLE__) || (__linux__) || (__unix__)
+	int res = 0;
+
+	if (cmd != NULL)
+	{
+		IOT_INFO("Execute command: %s", cmd);
+		res = system(cmd);
+		if (res < 0)
+		{
+			IOT_ERROR("fail to execute");
+		}
+	}
+#else
+	#error "Implement your execution code here!"
 #endif
 }
 
@@ -591,7 +675,7 @@ int main(int argc, char **argv) {
 								downloadAgentSize,
 								(uint8_t *) AWS_IOT_MY_THING_NAME,
 								(uint8_t *) streamName,
-								fileID,
+								fileId,
 								fileSize,
 								MAX_SIZE_OF_FILE_BLOCK_LOG2,
 								AWS_IOT_DOWNLOAD_REQUEST_ALL_BLOCKS);
@@ -631,6 +715,11 @@ int main(int argc, char **argv) {
 										"{\"reason\":\"Success %ubytes\"}",
 										receivedFileSize);
 				iot_update_job_status(&client, (char *) jobId, JOB_EXECUTION_SUCCEEDED, messageBuffer);
+
+				if (strlen(cmdToBeExecutedAfterDownload) > 0)
+				{
+					executeSystemCmd(cmdToBeExecutedAfterDownload);
+				}
 			}
 			else
 			{
