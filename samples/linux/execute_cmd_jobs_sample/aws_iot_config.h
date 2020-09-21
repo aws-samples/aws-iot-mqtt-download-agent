@@ -18,8 +18,8 @@
  * @brief AWS IoT specific configuration file
  */
 
-#ifndef SRC_JOBS_IOT_JOB_CONFIG_H_
-#define SRC_JOBS_IOT_JOB_CONFIG_H_
+#ifndef SRC_EXECUTE_CMD_JOBS_IOT_CONFIG_H_
+#define SRC_EXECUTE_CMD_JOBS_IOT_CONFIG_H_
 
 // Get from console
 // =================================================
@@ -33,12 +33,8 @@
 // =================================================
 
 // MQTT PubSub
-#ifndef DISABLE_IOT_JOBS
-#define AWS_IOT_MQTT_RX_BUF_LEN 512 ///< Any message that comes into the device should be less than this buffer size. If a received message is bigger than this buffer size the message will be dropped.
-#else
-#define AWS_IOT_MQTT_RX_BUF_LEN 2048
-#endif
 #define AWS_IOT_MQTT_TX_BUF_LEN 512 ///< Any time a message is sent out through the MQTT layer. The message is copied into this buffer anytime a publish is done. This will also be used in the case of Thing Shadow
+#define AWS_IOT_MQTT_RX_BUF_LEN 4096 ///< Any message that comes into the device should be less than this buffer size. If a received message is bigger than this buffer size the message will be dropped.
 #define AWS_IOT_MQTT_NUM_SUBSCRIBE_HANDLERS 5 ///< Maximum number of topic filters the MQTT client can handle at any given time. This should be increased appropriately when using Thing Shadow
 
 // Shadow and Job common configs
@@ -64,7 +60,7 @@
 #define MAX_JOB_TOPIC_LENGTH_BYTES MAX_JOB_TOPIC_LENGTH_WITHOUT_JOB_ID_OR_THING_NAME + MAX_SIZE_OF_THING_NAME + MAX_SIZE_OF_JOB_ID + 2
 
 // Execute commands specific configs
-#define MAX_SIZE_OF_CMD 256
+#define MAX_SIZE_OF_CMD AWS_IOT_MQTT_RX_BUF_LEN
 
 // Auto Reconnect specific config
 #define AWS_IOT_MQTT_MIN_RECONNECT_WAIT_INTERVAL 1000 ///< Minimum time before the First reconnect attempt is made as part of the exponential back-off algorithm
@@ -72,4 +68,4 @@
 
 #define DISABLE_METRICS false ///< Disable the collection of metrics by setting this to true
 
-#endif /* SRC_JOBS_IOT_JOB_CONFIG_H_ */
+#endif /* SRC_EXECUTE_CMD_JOBS_IOT_CONFIG_H_ */
