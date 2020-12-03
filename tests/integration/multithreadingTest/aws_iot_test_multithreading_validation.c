@@ -49,7 +49,7 @@ static void aws_iot_mqtt_tests_message_aggregator(AWS_IoT_Client *pClient, char 
 	IOT_UNUSED(pData);
 
 	if(BUFFER_SIZE >= params->payloadLen) {
-		snprintf(tempBuf, params->payloadLen, params->payload);
+		snprintf(tempBuf, params->payloadLen, "%s", (char *)params->payload);
 		printf("\n Message received : %s", tempBuf);
 		temp = strtok_r(tempBuf, " ,:", &next_token);
 		temp = strtok_r(NULL, " ,:", &next_token);
@@ -324,7 +324,7 @@ int aws_iot_mqtt_tests_multi_threading_validation() {
 	percentOfRxMsg = (float) rxMsgCount * 100 / (PUBLISH_COUNT * MAX_PUB_THREAD_COUNT);
 	if(RX_RECEIVE_PERCENTAGE <= percentOfRxMsg  && 0 == rxMsgBufferTooBigCounter && 0 == rxUnexpectedNumberCounter &&
 	   0 == wrongYieldCount) {
-		printf("\nSuccess: %f \%\n", percentOfRxMsg);
+		printf("\nSuccess: %f %%\n", percentOfRxMsg);
 		printf("Published Messages: %d , Received Messages: %d \n", PUBLISH_COUNT * MAX_PUB_THREAD_COUNT, rxMsgCount);
 		printf("QoS 1 re publish count %d\n", rePublishCount);
 		printf("Connection Attempts %d\n", connectCounter);

@@ -2,7 +2,9 @@
 .prevent_execution:
 	exit 0
 
-CC = gcc
+ifeq ($(origin CC),default)
+	CC = gcc
+endif
 RM = rm
 
 DEBUG =
@@ -10,29 +12,53 @@ DEBUG =
 #IoT client directory
 IOT_CLIENT_DIR = ../..
 
+#Use MbedTLS as default tls adapter.
+TLS_ADAPTER ?= mbedtls
+VALID_TLS_ADAPTER := mbedtls openssl
+ifneq ($(filter $(TLS_ADAPTER),$(VALID_TLS_ADAPTER)),)
+    $(info TLS_ADAPTER=$(TLS_ADAPTER))
+else
+    $(error invalid TLS_ADAPTER value)
+endif
+
 APP_DIR = $(IOT_CLIENT_DIR)/tests/integration
-APP_NAME = integration_tests_mbedtls
-MT_APP_NAME = integration_tests_mbedtls_mt
+APP_NAME = integration_tests_$(TLS_ADAPTER)
+MT_APP_NAME = integration_tests_$(TLS_ADAPTER)_mt
 APP_SRC_FILES = $(shell find $(APP_DIR)/src/ -name '*.c')
 MT_APP_SRC_FILES = $(shell find $(APP_DIR)/multithreadingTest/ -name '*.c')
 APP_INCLUDE_DIRS = -I $(APP_DIR)/include
 
 PLATFORM_DIR = $(IOT_CLIENT_DIR)/platform/linux
 
-#MbedTLS directory
-TEMP_MBEDTLS_SRC_DIR = $(IOT_CLIENT_DIR)/external_libs/mbedTLS
-TLS_LIB_DIR = $(TEMP_MBEDTLS_SRC_DIR)/library
-CRYPTO_LIB_DIR = $(TEMP_MBEDTLS_SRC_DIR)/crypto/library
-TLS_INCLUDE_DIR = -I $(TEMP_MBEDTLS_SRC_DIR)/include
+STATIC_LIBS = 
+
+ifeq ($(TLS_ADAPTER),mbedtls)
+	#MbedTLS directory
+	TEMP_MBEDTLS_SRC_DIR = $(IOT_CLIENT_DIR)/external_libs/mbedTLS
+	TLS_LIB_DIR = $(TEMP_MBEDTLS_SRC_DIR)/library
+	CRYPTO_LIB_DIR = $(TEMP_MBEDTLS_SRC_DIR)/crypto/library
+	TLS_INCLUDE_DIR = -I $(TEMP_MBEDTLS_SRC_DIR)/include
+	EXTERNAL_LIBS += -L$(TLS_LIB_DIR)
+	STATIC_LIBS += $(TLS_LIB_DIR)/libmbedtls.a $(CRYPTO_LIB_DIR)/libmbedcrypto.a $(TLS_LIB_DIR)/libmbedx509.a
+	COMPILER_FLAGS += -DENABLE_TLS_ADAPTER_MBEDTLS
+	LD_FLAG += -Wl,-rpath,$(TLS_LIB_DIR)
+	PRE_MAKE_CMDS += $(MAKE) -C $(TEMP_MBEDTLS_SRC_DIR);
+	CLEAN_CMD += $(MAKE) -C $(TEMP_MBEDTLS_SRC_DIR) clean;
+endif
+
+ifeq ($(TLS_ADAPTER),openssl)
+	COMPILER_FLAGS += -DENABLE_TLS_ADAPTER_OPENSSL
+	LD_FLAG += -lcrypto -lssl
+endif
 
 #CBOR - tinycbor
 TINYCBOR_DIR = $(IOT_CLIENT_DIR)/external_libs/tinycbor
 CBOR_LIB_DIR = $(TINYCBOR_DIR)/lib
 CBOR_INCLUDE_DIR = -I $(TINYCBOR_DIR)/src
-
-EXTERNAL_LIBS += -L$(TLS_LIB_DIR)
-LD_FLAG += -Wl,-rpath,$(TLS_LIB_DIR)
-LD_FLAG += -ldl $(TLS_LIB_DIR)/libmbedtls.a $(CRYPTO_LIB_DIR)/libmbedcrypto.a $(TLS_LIB_DIR)/libmbedx509.a $(CBOR_LIB_DIR)/libtinycbor.a -lpthread
+STATIC_LIBS += $(CBOR_LIB_DIR)/libtinycbor.a
+PRE_MAKE_CMDS += $(MAKE) -C $(TINYCBOR_DIR);
+CLEAN_CMD += $(MAKE) -C $(TINYCBOR_DIR) clean;
+LD_FLAG += -ldl $(STATIC_LIBS) -lpthread
 
 # Logging level control
 #LOG_FLAGS += -DENABLE_IOT_DEBUG
@@ -45,14 +71,21 @@ COMPILER_FLAGS += $(LOG_FLAGS)
 #IoT client directory
 PLATFORM_COMMON_DIR = $(PLATFORM_DIR)/common
 PLATFORM_THREAD_DIR = $(PLATFORM_DIR)/pthread
-PLATFORM_NETWORK_DIR = $(PLATFORM_DIR)/mbedtls
+ifeq ($(TLS_ADAPTER),mbedtls)
+	PLATFORM_NETWORK_DIR = $(IOT_CLIENT_DIR)/platform/linux/mbedtls
+endif
+ifeq ($(TLS_ADAPTER),openssl)
+	PLATFORM_NETWORK_DIR = $(IOT_CLIENT_DIR)/platform/linux/openssl
+endif
 
 IOT_INCLUDE_DIRS = -I $(PLATFORM_COMMON_DIR)
 IOT_INCLUDE_DIRS += -I $(PLATFORM_THREAD_DIR)
 IOT_INCLUDE_DIRS += -I $(PLATFORM_NETWORK_DIR)
 IOT_INCLUDE_DIRS += -I $(IOT_CLIENT_DIR)/include
 IOT_INCLUDE_DIRS += -I $(IOT_CLIENT_DIR)/external_libs/jsmn
-IOT_INCLUDE_DIRS += -I $(TEMP_MBEDTLS_SRC_DIR)/include/mbedtls
+ifeq ($(TLS_ADAPTER),mbedtls)
+	IOT_INCLUDE_DIRS += -I $(TEMP_MBEDTLS_SRC_DIR)/include/mbedtls
+endif
 
 IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/src/ -name '*.c')
 IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/external_libs/jsmn/ -name '*.c')
@@ -74,8 +107,6 @@ MT_SRC_FILES += $(IOT_SRC_FILES)
 
 COMPILER_FLAGS += -g
 COMPILER_FLAGS += $(LOG_FLAGS)
-PRE_MAKE_CMDS += cd $(TEMP_MBEDTLS_SRC_DIR) && make && make -C $(TINYCBOR_DIR)
-
 
 MAKE_CMD =    $(CC) $(SRC_FILES) $(COMPILER_FLAGS)    -g3 -D_ENABLE_THREAD_SUPPORT_ -DDOWNLOAD_AGENT_WRITE_FLASH_SUPPORTED -DENABLE_TINYCBOR -o $(APP_DIR)/$(APP_NAME) $(EXTERNAL_LIBS) $(LD_FLAG) $(INCLUDE_ALL_DIRS);
 MAKE_MT_CMD = $(CC) $(MT_SRC_FILES) $(COMPILER_FLAGS) -g3 -D_ENABLE_THREAD_SUPPORT_ -o $(APP_DIR)/$(MT_APP_NAME) $(EXTERNAL_LIBS) $(LD_FLAG) $(INCLUDE_ALL_DIRS);

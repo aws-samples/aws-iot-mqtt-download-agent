@@ -20,11 +20,31 @@
 #include <aws_iot_jobs_interface.h>
 #include <aws_iot_jobs_json.h>
 #include "aws_iot_download_agent.h"
-#include "md5.h"
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <assert.h>
 #include <fcntl.h>
+
+#ifdef ENABLE_TLS_ADAPTER_MBEDTLS
+#include "md5.h"
+#define PLATFORM_MD5_CTX                        mbedtls_md5_context
+#define PLATFORM_MD5_INIT(ctx)                  mbedtls_md5_init(ctx)
+#define PLATFORM_MD5_STARTS(ctx)                mbedtls_md5_starts_ret(ctx)
+#define PLATFORM_MD5_UPDATE(ctx,buf,bufsize)    mbedtls_md5_update_ret(ctx,buf,bufsize)
+#define PLATFORM_MD5_FINISH(ctx,md)             mbedtls_md5_finish_ret(ctx,md)
+#define PLATFORM_MD5_FREE(ctx)                  mbedtls_md5_free(ctx)
+#endif
+
+#ifdef ENABLE_TLS_ADAPTER_OPENSSL
+#include <openssl/md5.h>
+#define PLATFORM_MD5_CTX                        MD5_CTX
+#define PLATFORM_MD5_INIT(ctx)                  MD5_Init(ctx)
+#define PLATFORM_MD5_STARTS(ctx)                (0)
+#define PLATFORM_MD5_UPDATE(ctx,buf,bufsize)    MD5_Update(ctx,buf,bufsize)
+#define PLATFORM_MD5_FINISH(ctx,md)             MD5_Final(md,ctx)
+#define PLATFORM_MD5_FREE(ctx)                  (0)
+#endif
 
 static AWS_IoT_Client client;
 
@@ -322,7 +342,7 @@ void iot_test_download_next_job_cb(AWS_IoT_Client *pClient, char *topicName, uin
 bool aws_iot_download_test_md5(void)
 {
 	bool ret = false;
-	mbedtls_md5_context md5;
+	PLATFORM_MD5_CTX md5;
 	uint8_t md5_calc[16] = {0};
 	char md5str[33] = {0};
 	char * binFile = NULL;
@@ -355,13 +375,13 @@ bool aws_iot_download_test_md5(void)
 
 	close(fd);
 
-	mbedtls_md5_init(&md5);
+	PLATFORM_MD5_INIT(&md5);
 
-	if ((ret = mbedtls_md5_starts_ret(&md5)) != 0)
+	if ((ret = PLATFORM_MD5_STARTS(&md5)) != 0)
 		goto exit;
-	if ((ret = mbedtls_md5_update_ret(&md5, (const unsigned char *) binFile, fileSize)) != 0)
+	if ((ret = PLATFORM_MD5_UPDATE(&md5, (const unsigned char *) binFile, fileSize)) != 0)
 		goto exit;
-	if ((ret = mbedtls_md5_finish_ret(&md5, md5_calc)) != 0)
+	if ((ret = PLATFORM_MD5_FINISH(&md5, md5_calc)) != 0)
 		goto exit;
 
 	sprintf(md5str, "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
@@ -377,7 +397,7 @@ bool aws_iot_download_test_md5(void)
 	}
 
 exit:
-	mbedtls_md5_free(&md5);
+	PLATFORM_MD5_FREE(&md5);
 	free(binFile);
 	return ret;
 }
